@@ -27,15 +27,16 @@ IgnoreNextMouseClickTimeMilliseconds=80
 ```
 
 - Monitor Left Mouse Click?
-  - 0 = Yes, prevent too fast double mouse clicking of the Left Mouse Button.
-  - 1 = No, don't monitor the Left Mouse Button clicks.
+  - 0 = No, don't monitor the Left Mouse Button clicks.
+  - 1 = Yes, prevent too fast double mouse clicking of the Left Mouse Button.
 ```
 MonitorLeftMouseClick=1
 ```
 
 - Monitor Right Mouse Click?
-  - 0 = Yes, prevent too fast double mouse clicking of the Right Mouse Button.
-  - 1 = No, don't monitor the Right Mouse Button clicks.
+  - 0 = No, don't monitor the Right Mouse Button clicks.
+  - 1 = Yes, prevent too fast double mouse clicking of the Right Mouse Button.
+
 ```
 MonitorRightMouseClick=1
 ```
