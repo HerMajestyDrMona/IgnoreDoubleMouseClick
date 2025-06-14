@@ -4,6 +4,7 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include <shlwapi.h>
 using namespace std;
 
 const wstring ProgramName = L"IgnoreDoubleMouseClick";
@@ -25,6 +26,8 @@ bool showConsole = false;
 bool MonitorLeftMouseClick = true;
 bool MonitorRightMouseClick = true;
 bool AutomaticallyRunThisProgramOnStartup = false;
+bool StartThisProgramAsAdministrator = false;
+bool TheProgramIsRunningAsAdministratorRightNow = false;
 
 // Function to get current time in milliseconds
 long long GetSteadyClockMilliseconds()
@@ -242,6 +245,15 @@ void Mona_Load_Configuration() {
 						continue;
 					}
 
+					if (NewIsConfigLineEqualTo(line, "StartThisProgramAsAdministrator", "1") || NewIsConfigLineEqualTo(line, "StartThisProgramAsAdministrator", "true")) {
+						StartThisProgramAsAdministrator = true;
+						continue;
+					}
+					else if (NewIsConfigLineEqualTo(line, "StartThisProgramAsAdministrator", "0") || NewIsConfigLineEqualTo(line, "StartThisProgramAsAdministrator", "false")) {
+						StartThisProgramAsAdministrator = false;
+						continue;
+					}
+
 					TmpValueFromNewConfigGetIntFunction = NewConfigGetIntValueAfter(line, "IgnoreNextMouseClickTimeMilliseconds");
 					if (TmpValueFromNewConfigGetIntFunction != -696969) {
 						if (TmpValueFromNewConfigGetIntFunction >= 0) {
@@ -365,7 +377,7 @@ bool RegistryGetStringValue(std::wstring& valueBuf, HKEY MainKey, const std::wst
 	return false;
 }
 
-bool RegistrySetStringValue(HKEY MainKey, const std::wstring& regSubKey, const std::wstring& regValue, const std::wstring& stringToSet)
+/*bool RegistrySetStringValue(HKEY MainKey, const std::wstring& regSubKey, const std::wstring& regValue, const std::wstring& stringToSet)
 {
 	size_t LengthXX = stringToSet.length() * 2;
 	auto rc = RegSetKeyValueW(
@@ -388,6 +400,31 @@ bool RegistrySetStringValue(HKEY MainKey, const std::wstring& regSubKey, const s
 	}
 
 	return false;
+}*/
+
+bool RegistrySetStringValue(HKEY MainKey, const std::wstring& regSubKey, const std::wstring& regValue, const std::wstring& stringToSet)
+{
+	// Calculate size INCLUDING null terminator (each wchar_t = 2 bytes)
+	DWORD dataSize = static_cast<DWORD>((stringToSet.length() + 1) * sizeof(wchar_t));
+
+	auto rc = RegSetKeyValueW(
+		MainKey,
+		regSubKey.c_str(),
+		regValue.c_str(),
+		REG_SZ,
+		stringToSet.c_str(),
+		dataSize
+	);
+
+	if (rc == ERROR_SUCCESS) {
+		return true;
+	}
+	else {
+		// Enhanced error logging
+		std::wcerr << L"RegistrySetStringValue failed (Error " << rc
+			<< L"): " << regSubKey << L"\\" << regValue << std::endl;
+		return false;
+	}
 }
 
 bool RegistryDeleteKeyValue(HKEY MainKey, const std::wstring& regSubKey, const std::wstring& regValue)
@@ -471,7 +508,23 @@ void Check_And_Set_Auto_Program_Startup() {
 	}
 }
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+BOOL IsElevated() {
+	BOOL fRet = FALSE;
+	HANDLE hToken = NULL;
+	if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
+		TOKEN_ELEVATION Elevation;
+		DWORD cbSize = sizeof(TOKEN_ELEVATION);
+		if (GetTokenInformation(hToken, TokenElevation, &Elevation, sizeof(Elevation), &cbSize)) {
+			fRet = Elevation.TokenIsElevated;
+		}
+	}
+	if (hToken) {
+		CloseHandle(hToken);
+	}
+	return fRet;
+}
+
+int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
 {
 	wchar_t result[MAX_PATH];
 	CurrentExeWorks = std::wstring(result, GetModuleFileNameW(NULL, result, MAX_PATH));
@@ -479,18 +532,51 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	CurrentExeWorksFilenameOnly = CurrentPath.filename().wstring();
 	//std::wcout << CurrentExeWorksFilenameOnly << endl;
 
+	wchar_t CurrentWorkingDirectoryWhereExeIs[MAX_PATH];
+	wstring ress = std::wstring(CurrentWorkingDirectoryWhereExeIs, GetModuleFileNameW(NULL, CurrentWorkingDirectoryWhereExeIs, MAX_PATH));
+	PathRemoveFileSpecW(CurrentWorkingDirectoryWhereExeIs);
+	SetCurrentDirectoryW(CurrentWorkingDirectoryWhereExeIs);
+	CurrentExeWorksPath = CurrentWorkingDirectoryWhereExeIs;
+
+	bool IgnoreMutex = false;
+	wstring Commandline = lpCmdLine;
+	if (Commandline.find(L"restart-ignore-mutex") != std::wstring::npos) {
+		IgnoreMutex = true;
+	}
+
+
 	wstring MutexName = L"Mona" + ProgramName + L"-AlreadyRunning";
-	HANDLE handleMutex = CreateMutex(NULL, TRUE, MutexName.c_str());
-	if (GetLastError() == ERROR_ALREADY_EXISTS)
-	{
-		std::wcout << ProgramName << L" is already running. Exiting this instance..." << endl;
-		return 1;
+	if (!IgnoreMutex) {
+		HANDLE handleMutex = CreateMutex(NULL, TRUE, MutexName.c_str());
+		if (GetLastError() == ERROR_ALREADY_EXISTS)
+		{
+			std::wcout << ProgramName << L" is already running. Exiting this instance..." << endl;
+			return 1;
+		}
 	}
 
 	Mona_Load_Configuration();
     // Toggle console window visibility based on the showConsole flag
 	if (showConsole) {
 		ShowConsoleWindow();
+	}
+
+	//ver 2.2 check if run as administrator:
+	if (StartThisProgramAsAdministrator) {
+		if (!IsElevated()) {
+			if (Commandline.find(L"restart-as-administrator") != std::wstring::npos) {
+				//Do nothing, just in case it failed so we don't create a forkbomb
+			}
+			else {
+				wstring RestartNowWstr = L"restart-as-administrator-restart-ignore-mutex";
+				ShellExecuteW(NULL, L"runas", CurrentExeWorks.c_str(), RestartNowWstr.c_str(), NULL, SW_SHOW);
+				return 0;
+			}
+		}
+	}
+
+	if (IsElevated()) {
+		TheProgramIsRunningAsAdministratorRightNow = true;
 	}
 
 	//Check auto start:
