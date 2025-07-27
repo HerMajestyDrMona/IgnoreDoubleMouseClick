@@ -50,7 +50,7 @@ AutomaticallyRunThisProgramOnStartup=0
 
 - Should the program start as administrator?
   - 1 = YES. The program will check if the current instance is elevated. If it isn't, the program will show the UAC prompt asking to start it as administrator.
-  - 0 = NO. The program will work in the normal mode, but dragging from the other programs that are running as administrator might not work.
+  - 0 = NO. The program will work in the normal mode, but monitoring mouse click in the other programs that are running as administrator won't work.
 ```
 StartThisProgramAsAdministrator=0
 ```
